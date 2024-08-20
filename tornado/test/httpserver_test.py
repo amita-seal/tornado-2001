@@ -25,6 +25,7 @@ import socket
 import ssl
 import sys
 import tempfile
+import textwrap
 from io import BytesIO
 
 
@@ -394,6 +395,21 @@ class HTTPServerRawTest(AsyncHTTPTestCase):
         self.stream.close()
         super(HTTPServerRawTest, self).tearDown()
 
+    def test_chunked_request_body_duplicate_header(self):
+        with ExpectLog(gen_log, ".*Unsupported Transfer-Encoding chunked,chunked"):
+            self.stream.write(b"""\
+POST /echo HTTP/1.1
+Host: localhost
+Transfer-Encoding: chunked
+Transfer-Encoding: chunked
+
+""")
+            read_stream_body(self.stream, self.stop)
+            start_line, headers, response = self.wait()
+            self.assertEqual('HTTP/1.1', start_line.version)
+            self.assertEqual(400, start_line.code)
+            self.assertEqual('Bad Request', start_line.reason)
+
     def test_empty_request(self):
         self.stream.close()
         self.io_loop.add_timeout(datetime.timedelta(seconds=0.001), self.stop)
@@ -474,6 +490,47 @@ bar
 """.replace(b"\n", b"\r\n"))
             yield self.stream.read_until_close()
 
+    def test_chunked_request_body_invalid_size(self):
+        with ExpectLog(gen_log, '.*invalid chunk size'):
+            self.stream.write(b"""\
+POST /echo HTTP/1.1
+Transfer-Encoding: chunked
+
+1_a
+1234567890abcdef1234567890
+0
+
+""".replace(b"\n", b"\r\n"))
+            read_stream_body(self.stream, self.stop)
+            start_line, headers, response = self.wait()
+            self.assertEqual(400, start_line.code)
+            self.assertEqual('Bad Request', start_line.reason)
+
+    def test_invalid_content_length_2(self):
+        with ExpectLog(gen_log, '.*Only integer Content-Length is allowed'):
+            self.stream.write(b"""\
+POST /echo HTTP/1.1
+Content-Length: 1_0
+
+body data
+""".replace(b"\n", b"\r\n"))
+            read_stream_body(self.stream, self.stop)
+            start_line, headers, response = self.wait()
+            self.assertEqual(400, start_line.code)
+            self.assertEqual('Bad Request', start_line.reason)
+
+    def test_invalid_content_length_3(self):
+        with ExpectLog(gen_log, '.*Only integer Content-Length is allowed'):
+            self.stream.write(b"""\
+POST /echo HTTP/1.1
+Content-Length: +10
+
+more body data
+""".replace(b"\n", b"\r\n"))
+            read_stream_body(self.stream, self.stop)
+            start_line, headers, response = self.wait()
+            self.assertEqual(400, start_line.code)
+            self.assertEqual('Bad Request', start_line.reason)
 
 class XHeaderTest(HandlerBaseTestCase):
     class Handler(RequestHandler):
@@ -948,7 +1005,6 @@ class StreamingChunkSizeTest(AsyncHTTPTestCase):
             write(compressed[20:])
         self.fetch_chunk_sizes(body_producer=body_producer,
                                headers={'Content-Encoding': 'gzip'})
-
 
 class MaxHeaderSizeTest(AsyncHTTPTestCase):
     def get_app(self):
