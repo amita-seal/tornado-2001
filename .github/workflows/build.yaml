@@ -11,60 +11,62 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    env:
-      TORNADO_EXTENSION: "1"
     strategy:
-      fail-fast: false  # Prevents cancellation of other jobs if one fails
+      fail-fast: false
       matrix:
         include:
           - python-version: 3.5
-            python-arch: x86
+            architecture: x86
             tox-env: py35
             tox-args: ""
           - python-version: 3.5
-            python-arch: x64
+            architecture: x64
             tox-env: py35
             tox-args: "tornado.test.websocket_test"
           - python-version: 3.6
-            python-arch: x86
+            architecture: x86
             tox-env: py36
             tox-args: "tornado.test.websocket_test"
           - python-version: 3.6
-            python-arch: x64
+            architecture: x64
             tox-env: py36
             tox-args: ""
           - python-version: 3.7
-            python-arch: x86
+            architecture: x86
             tox-env: py37
             tox-args: "tornado.test.websocket_test"
           - python-version: 3.7
-            python-arch: x64
+            architecture: x64
             tox-env: py37
             tox-args: ""
+    env:
+      TORNADO_EXTENSION: "1"
 
     steps:
       - uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }} (${{ matrix.python-arch }})
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-          architecture: ${{ matrix.python-arch }}
+          architecture: ${{ matrix.architecture }}
 
-      - name: Install dependencies
+      - name: Install Python build tools and dependencies
         run: |
-          python -m pip install --index-url 'https://:2018-09-16T19:22:58.819187Z@time-machines-pypi.sealsecurity.io/' --user --upgrade pip
-          python -m pip install --index-url 'https://:2018-09-16T19:22:58.819187Z@time-machines-pypi.sealsecurity.io/' tox wheel
+          echo "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.40.33807\bin\Hostx64\x64" >> $GITHUB_PATH
+          python -m pip --index-url 'https://:2018-09-16T19:22:58.819187Z@time-machines-pypi.sealsecurity.io/' install --upgrade pip
+          pip install --index-url 'https://:2018-09-16T19:22:58.819187Z@time-machines-pypi.sealsecurity.io/' setuptools wheel tox
 
-      - name: Run tests
-        run: tox -e ${{ matrix.tox-env }} -- ${{ matrix.tox-args }}
+      - name: Add Python to PATH
+        run: echo "${{ env.pythonLocation }}" >> $GITHUB_PATH
 
-      - name: Build wheels
-        if: success()
-        run: python setup.py bdist_wheel
+      - name: Run tests and build wheels
+        run: |
+          tox -e ${{ matrix.tox-env }} -- ${{ matrix.tox-args }}
+          if ($LASTEXITCODE -eq 0) { python setup.py bdist_wheel }
 
       - name: List built wheels
-        run: ls dist
+        run: dir dist
 
       - name: Upload wheels
         uses: actions/upload-artifact@v3
